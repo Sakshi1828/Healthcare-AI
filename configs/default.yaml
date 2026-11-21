@@ -1,0 +1,30 @@
+# Full GPU run (Colab T4/L4/A100). ~10-25 min/epoch on T4 at 224px, ~4 min at 128px.
+seed: 42
+run_dir: runs/densenet121_128
+
+data:
+  source: medmnist        # medmnist | synthetic
+  root: data/medmnist
+  image_size: 128         # 64 | 128 | 224  (224 = best accuracy, ~3x slower)
+  num_workers: 2
+
+model:
+  name: densenet121       # densenet121 | resnet50 | efficientnet_b0 | resnet18
+  pretrained: true
+  dropout: 0.2
+
+train:
+  epochs: 12
+  batch_size: 128
+  lr: 3.0e-4
+  weight_decay: 1.0e-4
+  warmup_epochs: 1
+  pos_weight_cap: 10.0    # counter class imbalance; null disables
+  amp: true
+  patience: 3             # early stopping on val macro-AUROC
+  max_minutes: 100        # hard wall-clock budget; saves & exits cleanly when hit
+
+eval:
+  target_sensitivity: 0.90
+  bootstrap: 1000
+  urgent_labels: [pneumothorax, effusion, pneumonia, edema, consolidation]

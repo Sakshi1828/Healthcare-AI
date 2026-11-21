@@ -1,0 +1,31 @@
+# CPU-only smoke test on synthetic data: verifies the whole pipeline in ~1 minute, zero GPU cost.
+seed: 0
+run_dir: runs/smoke
+
+data:
+  source: synthetic
+  root: data/medmnist
+  image_size: 64
+  num_workers: 0
+  synthetic_sizes: {train: 512, val: 256, test: 256}
+
+model:
+  name: resnet18
+  pretrained: false
+  dropout: 0.0
+
+train:
+  epochs: 4
+  batch_size: 64
+  lr: 2.0e-3
+  weight_decay: 1.0e-4
+  warmup_epochs: 0
+  pos_weight_cap: 10.0
+  amp: false
+  patience: 10
+  max_minutes: 10
+
+eval:
+  target_sensitivity: 0.90
+  bootstrap: 100
+  urgent_labels: [pneumothorax, effusion, pneumonia, edema, consolidation]
