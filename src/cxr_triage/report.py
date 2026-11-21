@@ -252,7 +252,9 @@ class GeminiGenerator:
     def __init__(self, model: str = "gemini-flash-lite-latest", client=None):
         from google import genai
 
-        self.client = client or genai.Client()  # reads GEMINI_API_KEY or GOOGLE_API_KEY
+        # Reads GEMINI_API_KEY / GOOGLE_API_KEY, or uses Vertex AI (billed to a Google Cloud
+        # project, no key) when GOOGLE_GENAI_USE_VERTEXAI=true and GOOGLE_CLOUD_PROJECT are set.
+        self.client = client or genai.Client()
         self.model = model
 
     def draft(self, context: dict, feedback: list[str] | None = None) -> tuple[dict, dict]:
@@ -279,18 +281,22 @@ class GeminiGenerator:
 
 
 def make_generator(backend: str = "auto") -> Generator:
-    """auto: Gemini if GEMINI_API_KEY/GOOGLE_API_KEY is set, else Claude if an Anthropic key is
+    """auto: Gemini if GEMINI_API_KEY/GOOGLE_API_KEY is set or Vertex AI is configured
+    (GOOGLE_GENAI_USE_VERTEXAI=true + GOOGLE_CLOUD_PROJECT), else Claude if an Anthropic key is
     set, else the free template. Model names can be overridden with CXR_GEMINI_MODEL and
     CXR_CLAUDE_MODEL."""
     import os
 
     if backend == "auto":
-        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+        vertex = os.environ.get("GOOGLE_GENAI_USE_VERTEXAI", "").lower() in ("1", "true")
+        if vertex or os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
             backend = "gemini"
         elif os.environ.get("ANTHROPIC_API_KEY"):
             backend = "claude"
         else:
             backend = "template"
+    if backend.startswith("gemini:"):  # explicit model, e.g. "gemini:gemini-2.5-flash"
+        return GeminiGenerator(model=backend.split(":", 1)[1])
     if backend == "gemini":
         return GeminiGenerator(model=os.environ.get("CXR_GEMINI_MODEL", "gemini-flash-lite-latest"))
     if backend == "claude":

@@ -198,15 +198,16 @@ def main(argv: list[str] | None = None) -> None:
     summaries, examples, detail = [], {}, {}
     seen = set()
     for backend in backends:
-        name = make_generator(backend).name
-        if name in seen:  # e.g. "auto" resolved to the template with no API key set
+        gen = make_generator(backend)
+        label = f"{gen.name} ({gen.model})" if getattr(gen, "model", None) else gen.name
+        if label in seen:  # e.g. "auto" resolved to the template with no API key set
             continue
-        seen.add(name)
+        seen.add(label)
         summary, results = run_backend(backend, cases, args.rpm)
         summaries.append(summary)
         failing = [r for r in results if r["violations_per_attempt"][:1] != [[]]]
-        examples[summary["backend"]] = (failing[:2] + results)[:3]
-        detail[summary["backend"]] = [
+        examples[label] = (failing[:2] + results)[:3]
+        detail[label] = [
             {"case_id": c["case_id"], "triage": c["triage"], **r}
             for c, r in zip(cases, results, strict=True)
         ]

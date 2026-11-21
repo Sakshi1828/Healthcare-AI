@@ -196,3 +196,12 @@ def test_report_eval_and_pregenerated_sample_reports(trained_run):
     Image.fromarray(np.zeros((64, 64), dtype=np.uint8)).save(buf, format="PNG")
     up = client.post("/predict?report=true", files={"file": ("x.png", buf.getvalue(), "image/png")})
     assert up.json()["report"]["source"] == "template"
+
+
+def test_auto_backend_picks_gemini_on_vertex(monkeypatch):
+    for k in ("GEMINI_API_KEY", "GOOGLE_API_KEY", "ANTHROPIC_API_KEY"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("GOOGLE_GENAI_USE_VERTEXAI", "true")
+    monkeypatch.setenv("GOOGLE_CLOUD_PROJECT", "demo-project")
+    monkeypatch.setenv("GOOGLE_CLOUD_LOCATION", "global")
+    assert make_generator("auto").name == "gemini"
