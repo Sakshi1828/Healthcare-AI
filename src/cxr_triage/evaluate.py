@@ -79,7 +79,8 @@ def evaluate(run_dir: str | Path, bootstrap: int | None = None) -> dict:
     model.to(device).to(memory_format=torch.channels_last)
     amp = bool(cfg["train"].get("amp"))
     zv, yv = predict_logits(model, make_loader(cfg, "val", shuffle=False), device, amp)
-    zt, yt = predict_logits(model, make_loader(cfg, "test", shuffle=False), device, amp)
+    test_loader = make_loader(cfg, "test", shuffle=False)
+    zt, yt = predict_logits(model, test_loader, device, amp)
 
     temps = fit_temperature(zv, yv)
     pv = sigmoid(apply_temperature(zv, temps))
@@ -128,11 +129,31 @@ def evaluate(run_dir: str | Path, bootstrap: int | None = None) -> dict:
             "thresholds": thresholds.tolist(),
             "urgent_labels": urgent,
             "refer_uncertainty": refer_unc,
+            "samples": pick_samples(test_loader.dataset.images, yt, labels),
         },
         run / "bundle.pt",
     )
     print(to_markdown(report, labels))
     return report
+
+
+DEMO_SAMPLE_LABELS = ["cardiomegaly", "effusion", "pneumothorax", "mass", "atelectasis"]
+
+
+def pick_samples(images, y: np.ndarray, labels: list[str]) -> list[dict]:
+    """A few held-out test images (public NIH data) offered as one-click examples in the demo:
+    one single-finding positive per showcase label, plus one image with no labeled finding."""
+    out, used = [], set()
+    for name in DEMO_SAMPLE_LABELS:
+        j = labels.index(name)
+        hits = [int(i) for i in np.where((y[:, j] == 1) & (y.sum(1) == 1))[0] if i not in used]
+        if hits:
+            used.add(hits[0])
+            out.append({"image": np.asarray(images[hits[0]]), "labels": [name]})
+    normal = [int(i) for i in np.where(y.sum(1) == 0)[0] if i not in used]
+    if normal:
+        out.append({"image": np.asarray(images[normal[0]]), "labels": []})
+    return out
 
 
 def to_markdown(r: dict, labels: list[str]) -> str:

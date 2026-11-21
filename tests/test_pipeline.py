@@ -81,3 +81,22 @@ def test_api(trained_run):
     assert r.status_code == 200 and "triage" in r.json()
     bad = client.post("/predict", files={"file": ("x.png", b"not an image", "image/png")})
     assert bad.status_code == 400
+
+
+def test_demo_ui_and_samples(trained_run):
+    from fastapi.testclient import TestClient
+
+    from cxr_triage.serve import create_app
+
+    run, _ = trained_run
+    client = TestClient(create_app(str(run / "bundle.pt")))
+    page = client.get("/")
+    assert page.status_code == 200 and "CXR-Triage" in page.text
+    samples = client.get("/samples").json()
+    assert len(samples) >= 2
+    assert any(s["ground_truth"] == [] for s in samples)
+    img = client.get(samples[0]["url"])
+    assert img.status_code == 200 and img.headers["content-type"] == "image/png"
+    r = client.post("/predict?explain=true", files={"file": ("s.png", img.content, "image/png")})
+    assert r.status_code == 200 and "gradcam" in r.json()
+    assert client.get("/samples/999.png").status_code == 404

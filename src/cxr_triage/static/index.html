@@ -1,0 +1,221 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CXR-Triage</title>
+<meta name="description" content="Calibrated chest X-ray triage with uncertainty-aware referral and Grad-CAM explanations.">
+<style>
+  :root {
+    --bg: #f6f7f9; --surface: #ffffff; --surface-2: #eef1f4; --border: #dde2e8;
+    --text: #17202a; --muted: #5b6673; --accent: #2557d6;
+    --urgent: #c62828; --urgent-bg: #fdecea;
+    --refer: #9a6700; --refer-bg: #fff4d6;
+    --finding: #2557d6; --finding-bg: #e8effd;
+    --clear: #1f7a4d; --clear-bg: #e3f4ea;
+    --bar: #b8c2cc; --bar-hit: #2557d6; --tick: #17202a;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #0f1419; --surface: #171d24; --surface-2: #1f2730; --border: #2c3640;
+      --text: #e6eaee; --muted: #93a0ad; --accent: #7aa2ff;
+      --urgent: #ff8a80; --urgent-bg: #3a1d1d;
+      --refer: #f2c14e; --refer-bg: #3a2f14;
+      --finding: #7aa2ff; --finding-bg: #1c2742;
+      --clear: #6fd39c; --clear-bg: #16301f;
+      --bar: #3a4652; --bar-hit: #7aa2ff; --tick: #e6eaee;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+  .wrap { max-width: 1080px; margin: 0 auto; padding: 24px 16px 48px; }
+  header h1 { margin: 0; font-size: 26px; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 0; color: var(--muted); }
+  .notice {
+    margin: 16px 0 24px; padding: 10px 14px; border-radius: 8px; font-size: 13.5px;
+    background: var(--refer-bg); color: var(--text); border: 1px solid var(--border);
+  }
+  .grid { display: grid; grid-template-columns: minmax(0, 5fr) minmax(0, 7fr); gap: 20px; }
+  @media (max-width: 820px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  .card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 18px;
+  }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin: 0 0 12px; }
+  .drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px;
+    min-height: 150px; border: 2px dashed var(--border); border-radius: 10px; padding: 16px;
+    text-align: center; cursor: pointer; color: var(--muted); transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--accent); background: var(--surface-2); }
+  .drop strong { color: var(--text); }
+  .samples { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 18px; }
+  .sample {
+    padding: 0; border: 1px solid var(--border); border-radius: 8px; overflow: hidden;
+    background: var(--surface-2); cursor: pointer; color: var(--text); font: inherit; text-align: left;
+  }
+  .sample:hover, .sample:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  .sample img { display: block; width: 100%; aspect-ratio: 1; object-fit: cover; image-rendering: auto; }
+  .sample span { display: block; padding: 4px 8px; font-size: 12px; color: var(--muted); }
+  .empty { color: var(--muted); text-align: center; padding: 48px 12px; }
+  .badge {
+    display: inline-block; padding: 6px 12px; border-radius: 999px; font-weight: 650; font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+  .t-URGENT { color: var(--urgent); background: var(--urgent-bg); }
+  .t-REFER_UNCERTAIN { color: var(--refer); background: var(--refer-bg); }
+  .t-NON_URGENT_FINDING { color: var(--finding); background: var(--finding-bg); }
+  .t-NO_FINDING_DETECTED { color: var(--clear); background: var(--clear-bg); }
+  .summary { display: flex; flex-wrap: wrap; gap: 10px 18px; align-items: center; margin-bottom: 14px; }
+  .meta { color: var(--muted); font-size: 13.5px; }
+  .meta b { color: var(--text); font-weight: 600; }
+  .images { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+  .images figure { margin: 0; }
+  .images img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #000; border-radius: 8px; display: block; }
+  .images figcaption { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .bars { display: grid; gap: 6px; }
+  .row { display: grid; grid-template-columns: 112px 1fr 44px; gap: 10px; align-items: center; font-size: 13.5px; }
+  .row .name { text-transform: capitalize; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .row.hit .name { font-weight: 650; }
+  .track { position: relative; height: 10px; background: var(--surface-2); border-radius: 5px; }
+  .fill { position: absolute; inset: 0 auto 0 0; background: var(--bar); border-radius: 5px; }
+  .row.hit .fill { background: var(--bar-hit); }
+  .tick { position: absolute; top: -3px; bottom: -3px; width: 2px; background: var(--tick); opacity: .55; }
+  .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
+  .legend { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
+  .error { color: var(--urgent); }
+  .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent);
+    border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 10px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  footer { margin-top: 28px; color: var(--muted); font-size: 13px; }
+  footer a { color: var(--accent); }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>CXR-Triage</h1>
+    <p>Chest X-ray screening for 14 findings, with calibrated probabilities, uncertainty-aware referral, and Grad-CAM.</p>
+  </header>
+  <div class="notice" role="note">
+    <strong>Research demo, not a medical device.</strong> Don't upload real patient images.
+    Uploads are processed in memory and never stored.
+  </div>
+
+  <div class="grid">
+    <section class="card" aria-labelledby="in-h">
+      <h2 id="in-h">Input</h2>
+      <label class="drop" id="drop" tabindex="0">
+        <strong>Drop a chest X-ray here</strong>
+        <span>or click to choose a PNG/JPEG</span>
+        <input id="file" class="sr-only" type="file" accept="image/png,image/jpeg">
+      </label>
+      <h2 style="margin-top:20px">Or try a held-out test image</h2>
+      <div class="samples" id="samples"><p class="meta">Loading samples…</p></div>
+    </section>
+
+    <section class="card" aria-labelledby="out-h" aria-live="polite">
+      <h2 id="out-h">Result</h2>
+      <div id="result"><p class="empty">Pick a sample or upload an image to see the triage decision.</p></div>
+    </section>
+  </div>
+
+  <footer>
+    Model: DenseNet-121 trained on NIH ChestX-ray14 (via MedMNIST+). Thresholds are set on validation data
+    for 90% sensitivity. Images are downsampled, and labels were text-mined from reports, so expect errors.
+    <a href="/docs">API docs</a> · <a href="https://github.com/sakshi1828/healthcare-ai">Source &amp; model card</a>
+  </footer>
+</div>
+
+<script>
+const TRIAGE = {
+  URGENT: ["Urgent", "An urgent finding is above its threshold: move to the top of the worklist."],
+  REFER_UNCERTAIN: ["Refer: model uncertain", "The model is unsure about this image, so a radiologist should read it."],
+  NON_URGENT_FINDING: ["Non-urgent finding", "Finding(s) above threshold, none of them urgent."],
+  NO_FINDING_DETECTED: ["No finding detected", "Nothing above threshold. A radiologist still reads every case."],
+};
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const pretty = (s) => s.replaceAll("_", " ");
+
+async function run(blob, truth) {
+  const inputUrl = URL.createObjectURL(blob);
+  $("result").innerHTML = '<div class="empty"><div class="spinner"></div>Analyzing…</div>';
+  const fd = new FormData();
+  fd.append("file", blob, "image.png");
+  try {
+    const r = await fetch("/predict?explain=true", { method: "POST", body: fd });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.detail || r.statusText);
+    render(data, inputUrl, truth);
+  } catch (e) {
+    $("result").innerHTML = `<p class="error">Error: ${esc(e.message)}</p>`;
+  }
+}
+
+function render(d, inputUrl, truth) {
+  const [title, desc] = TRIAGE[d.triage] || [d.triage, ""];
+  const rows = Object.entries(d.probabilities)
+    .sort((a, b) => b[1] / d.thresholds[b[0]] - a[1] / d.thresholds[a[0]])
+    .map(([name, p]) => {
+      const t = d.thresholds[name], hit = p >= t;
+      return `<div class="row${hit ? " hit" : ""}" title="threshold ${(t * 100).toFixed(1)}%">
+        <span class="name">${esc(name)}</span>
+        <span class="track" role="img" aria-label="${esc(name)} ${(p * 100).toFixed(1)} percent, threshold ${(t * 100).toFixed(1)} percent">
+          <span class="fill" style="width:${(p * 100).toFixed(1)}%"></span>
+          <span class="tick" style="left:calc(${(t * 100).toFixed(1)}% - 1px)"></span>
+        </span>
+        <span class="pct">${p < 0.01 ? "&lt;1" : (p * 100).toFixed(0)}%</span></div>`;
+    }).join("");
+  const truthHtml = truth === undefined ? "" :
+    `<span class="meta">Ground truth: <b>${truth.length ? truth.map(esc).join(", ") : "no finding"}</b></span>`;
+  const cam = d.gradcam
+    ? `<figure><img src="data:image/png;base64,${d.gradcam.png_base64}" alt="Grad-CAM heatmap">
+       <figcaption>Grad-CAM for <b>${esc(d.gradcam.label)}</b> ${d.findings.length ? "(where the model looked)" : "(top score, below threshold)"}</figcaption></figure>` : "";
+  $("result").innerHTML = `
+    <div class="summary">
+      <span class="badge t-${esc(d.triage)}">${esc(title)}</span>
+      <span class="meta">Uncertainty: <b>${d.uncertainty.toFixed(2)}</b> bits</span>
+      ${truthHtml}
+    </div>
+    <p class="meta" style="margin-top:-6px">${esc(desc)}</p>
+    <div class="images">
+      <figure><img src="${inputUrl}" alt="Input X-ray"><figcaption>Input</figcaption></figure>
+      ${cam}
+    </div>
+    <div class="bars">${rows}</div>
+    <p class="legend">Bars show calibrated probability; the dark tick is the decision threshold for that finding.
+      Highlighted rows are above threshold.</p>`;
+}
+
+async function loadSamples() {
+  try {
+    const list = await (await fetch("/samples")).json();
+    if (!list.length) { $("samples").innerHTML = '<p class="meta">No samples bundled.</p>'; return; }
+    $("samples").innerHTML = list.map((s) => {
+      const label = s.ground_truth.length ? s.ground_truth.join(", ") : "no finding";
+      return `<button class="sample" data-id="${s.id}" aria-label="Sample: ${esc(label)}">
+        <img src="${s.url}" alt="" loading="lazy"><span>${esc(pretty(label))}</span></button>`;
+    }).join("");
+    document.querySelectorAll(".sample").forEach((b) => b.addEventListener("click", async () => {
+      const s = list[+b.dataset.id];
+      run(await (await fetch(s.url)).blob(), s.ground_truth);
+    }));
+  } catch { $("samples").innerHTML = '<p class="meta">Could not load samples.</p>'; }
+}
+
+const drop = $("drop");
+$("file").addEventListener("change", (e) => e.target.files[0] && run(e.target.files[0]));
+drop.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); $("file").click(); } });
+["dragenter", "dragover"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.add("over"); }));
+["dragleave", "drop"].forEach((ev) => drop.addEventListener(ev, (e) => { e.preventDefault(); drop.classList.remove("over"); }));
+drop.addEventListener("drop", (e) => e.dataTransfer.files[0] && run(e.dataTransfer.files[0]));
+loadSamples();
+</script>
+</body>
+</html>

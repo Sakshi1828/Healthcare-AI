@@ -7,6 +7,8 @@ An end-to-end system that reads a chest X-ray and screens it for 14 findings. It
 instead of guessing, and shows *where* it looked with Grad-CAM. All of this is served behind a
 containerized API.
 
+**Live demo:** _coming soon (deploy with `deploy/cloudrun.sh`)_ · [Model card](docs/MODEL_CARD.md)
+
 > Research prototype on public data. Not a medical device.
 
 ## Why this project is different
@@ -70,14 +72,30 @@ pytest -q
 python -m cxr_triage.train --config configs/default.yaml --resume train.max_minutes=100
 python -m cxr_triage.evaluate runs/densenet121_128
 
-# 3. Serve
+# 3. Serve the API + demo UI, then open http://localhost:8080
 CXR_BUNDLE=runs/densenet121_128/bundle.pt uvicorn cxr_triage.serve:app --port 8080
 curl -F "file=@xray.png" "localhost:8080/predict?explain=true"
 
 # 4. Docker
-docker build --build-arg BUNDLE=runs/densenet121_128/bundle.pt -t cxr-triage .
-docker run -p 8080:8080 cxr-triage
+cp runs/densenet121_128/bundle.pt bundle.pt
+docker build -t cxr-triage . && docker run -p 8080:8080 cxr-triage
 ```
+
+## Live demo on Google Cloud Run
+
+The web UI at `/` lets anyone drop in an X-ray or click one of the bundled held-out test images.
+It shows the triage decision, calibrated probabilities against their thresholds, and a Grad-CAM
+heatmap. API docs are at `/docs`.
+
+```bash
+gcloud auth login && gcloud config set project YOUR_PROJECT_ID
+deploy/cloudrun.sh runs/densenet121_128/bundle.pt      # prints the public URL
+```
+
+The service runs on CPU, scales to zero (no cost while idle, with a cold start of about
+10–20 s), and is capped at 3 instances. To test the deploy before your GPU run, deploy the
+smoke bundle (`runs/smoke/bundle.pt`). It runs end to end, but it shows synthetic noise
+images.
 
 On Colab, use [`notebooks/colab_train.ipynb`](notebooks/colab_train.ipynb). It does all
 non-GPU work on a free CPU runtime first.
@@ -94,8 +112,10 @@ src/cxr_triage/
   evaluate.py     report + deployable bundle
   explain.py      Grad-CAM
   inference.py    Predictor + triage policy
-  serve.py        FastAPI app
+  serve.py        FastAPI app (API + demo UI)
+  static/         demo web page (no external dependencies)
 configs/          default.yaml (GPU), smoke.yaml (CPU)
+deploy/           cloudrun.sh: one-command Cloud Run deploy
 docs/             MODEL_CARD.md, GPU_BUDGET.md, CAREER_PLAYBOOK.md
 ```
 

@@ -37,6 +37,12 @@ class Predictor:
         self.model.load_state_dict(b["model"])
         self.model.to(self.device).eval()
         self.cam = GradCAM(self.model, gradcam_layer(self.model, m["name"]))
+        self.samples = b.get("samples", [])
+
+    def sample_png(self, i: int) -> bytes:
+        buf = io.BytesIO()
+        Image.fromarray(self.samples[i]["image"]).save(buf, format="PNG")
+        return buf.getvalue()
 
     def preprocess(self, image: Image.Image) -> tuple[np.ndarray, torch.Tensor]:
         gray = np.asarray(
