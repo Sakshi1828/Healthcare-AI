@@ -86,6 +86,8 @@ def evaluate(run_dir: str | Path, bootstrap: int | None = None) -> dict:
     pv = sigmoid(apply_temperature(zv, temps))
     pt_raw = sigmoid(zt)
     pt = sigmoid(apply_temperature(zt, temps))
+    # Per-case calibrated test predictions, reused by the report-drafting evaluation.
+    np.savez_compressed(run / "test_predictions.npz", probs=pt, labels=yt)
 
     thresholds = np.array(
         [threshold_at_sensitivity(yv[:, j], pv[:, j], target) for j in range(len(labels))]

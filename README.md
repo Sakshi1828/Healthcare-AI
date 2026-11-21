@@ -23,6 +23,7 @@ that matter are different. This project answers them:
 | How many urgent cases does it miss? | Thresholds chosen on val for **90% sensitivity**, then audited on held-out test |
 | What happens when it is unsure? | **Selective prediction**: high-uncertainty images go to a human (risk-coverage curve) |
 | Why did it say that? | **Grad-CAM** heatmap returned by the API |
+| Can an LLM write the report safely? | LLM sees only classifier numbers; a **verifier** rejects hallucinated/omitted findings and overclaims, with repair and template fallback |
 | Can it run in production? | FastAPI + Docker + CI; checkpoint/resume; deterministic configs |
 
 ## Architecture
@@ -57,6 +58,42 @@ threshold) → `REFER_UNCERTAIN` (prediction entropy in the top 20% seen on vali
 | DenseNet-121 | 128 | _TBD_ | _TBD_ | _TBD_ | _TBD_ |
 
 <!-- ![eval](docs/results/eval_plots.png) ![gradcam](docs/results/gradcam_gallery.png) -->
+
+## Guardrailed LLM report drafting
+
+`report.py` turns the classifier output into a short draft report. **The LLM writes, code
+verifies:**
+
+1. The LLM never sees the image, only the structured output: findings above threshold,
+   calibrated probabilities, triage level, uncertainty.
+2. A deterministic verifier checks every draft for **hallucinated findings** (including negated
+   ones like "no pneumothorax", which the classifier cannot support), **omitted findings**,
+   **missing uncertainty disclosure** on referred cases, and **overclaiming** ("diagnosis",
+   "confirmed", ...).
+3. A failing draft gets one repair attempt with the violations as feedback, then falls back to a
+   deterministic template. Every report that reaches a user has passed the verifier.
+
+Backends: **Gemini** (free tier with a Google AI Studio key), **Claude** (paid Anthropic API),
+or the **template** (free, no AI). `auto` picks whichever key is set, else the template.
+
+```bash
+pip install -e ".[llm]"
+export GEMINI_API_KEY=...            # free key from Google AI Studio
+# Compare backends on 100 stratified held-out cases (runs on CPU, no GPU needed)
+python -m cxr_triage.report_eval runs/densenet121_128 --backends template,gemini --n 100
+# Pre-generate reports for the demo's sample images (stored in bundle.pt)
+python -m cxr_triage.report_eval runs/densenet121_128 --backends gemini --bundle-samples
+```
+
+The Gemini free tier is rate-limited per project (check AI Studio); `--rpm` throttles requests.
+With Claude, Opus 5.5 costs roughly 1–2 cents per report. The public demo calls no API for
+sample images (their reports are pre-generated) and caps LLM calls for uploads
+(`CXR_LLM_MAX_PER_HOUR`, default 30), so a shared link cannot run up a bill.
+
+| Backend | 1st-draft pass | Hallucination | Omission | Template fallback | Final verified | Cost / report |
+|---|---|---|---|---|---|---|
+| Template | 100% | 0% | 0% | n/a | 100% | $0 |
+| Gemini (free tier) | _TBD_ | _TBD_ | _TBD_ | _TBD_ | 100% by design | $0 |
 
 ## Quickstart
 
@@ -112,6 +149,8 @@ src/cxr_triage/
   evaluate.py     report + deployable bundle
   explain.py      Grad-CAM
   inference.py    Predictor + triage policy
+  report.py       guardrailed LLM report drafting (Gemini / Claude / template)
+  report_eval.py  report-drafting evaluation + demo sample reports
   serve.py        FastAPI app (API + demo UI)
   static/         demo web page (no external dependencies)
 configs/          default.yaml (GPU), smoke.yaml (CPU)

@@ -27,7 +27,7 @@ copied.
 |---|---|---|---|
 | **1. Real results** | Main run + one ablation; README results table, plots, Grad-CAM gallery | ~4 h | Proves you can run and report experiments honestly |
 | **2. Live demo** (started) | Public Cloud Run URL with sample X-rays, linked at the top of the README and on your resume | 0 | Recruiters spend about 30 seconds per resume, and a link gets clicked |
-| **3. GenAI layer** | LLM turns structured findings into a draft report, with guardrails (may only mention above-threshold findings, must state uncertainty); an eval measuring hallucinated-finding rate on 200 test cases | 0 | The highest-demand skill right now: LLMs plus classic ML plus evals |
+| **3. GenAI layer** (built) | Run `report_eval` on the free Gemini tier and fill in the README table: first-draft pass rate, hallucination/omission rates, fallback rate. Optional: add a second model for a cost-vs-quality comparison | 0 | The highest-demand skill right now: LLMs plus classic ML plus evals |
 | **4. Robustness** | Run the trained model on a second dataset (CheXpert or MIMIC-CXR subset); report the accuracy drop and analyze why | ~0.5 h (inference only) | Distribution shift is a favorite ML-interview topic |
 | **5. Efficiency** (pick one) | Linear probe on a medical foundation model's embeddings vs. the fine-tuned DenseNet, **or** int8 quantization / ONNX export with a latency benchmark on Cloud Run | 0–0.5 h | Shows accuracy-vs-cost trade-off thinking, which is core at scale |
 | Stretch | Subgroup accuracy by sex and age | 0 | Good for health-team interviews |
@@ -45,8 +45,9 @@ LinkedIn. Hiring managers read these.
   80% coverage, and cut calibration error [X]% with per-label temperature scaling.
 - Trained within a 6-GPU-hour budget using mixed precision, wall-clock limits, and
   preemption-safe resume; CPU-only CI validated every change before spending GPU time.
-- [Phase 3] Added an LLM report-drafting layer with guardrails; built an eval that cut
-  hallucinated findings from [a]% to [b]%.
+- [Phase 3] Added an LLM report-drafting layer where code verifies every draft: measured a
+  [a]% first-draft hallucination rate on [n] held-out cases and guaranteed 0% in delivered
+  reports through verification, repair, and template fallback, at $0 using the Gemini free tier.
 
 Put the project **above** coursework on your resume, with the demo link in the title line.
 

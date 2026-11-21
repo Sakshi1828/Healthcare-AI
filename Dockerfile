@@ -7,7 +7,7 @@ WORKDIR /app
 RUN pip install torch torchvision --index-url https://download.pytorch.org/whl/cpu
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install ".[serve]"
+RUN pip install ".[serve,llm]"
 COPY bundle.pt /app/bundle.pt
 ENV CXR_BUNDLE=/app/bundle.pt PORT=8080 OMP_NUM_THREADS=2
 RUN useradd -m app && chown -R app /app

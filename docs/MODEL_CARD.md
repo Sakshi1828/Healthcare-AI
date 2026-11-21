@@ -28,5 +28,11 @@ sensitivity and a risk-coverage curve. Results: see `README.md` → Results.
 - Downsampled images (128–224 px) reduce sensitivity to small nodules.
 - Calibration is fit on the same distribution. It will not hold under dataset shift.
 
+**LLM report drafting.** Optional draft reports are written by an LLM (Gemini or Claude)
+from the classifier's numbers only, never the image. A deterministic verifier blocks
+hallucinated or omitted findings, missing uncertainty disclosure, and overclaiming; failing
+drafts fall back to a template. The verifier checks consistency with the classifier, not
+clinical truth: if the classifier is wrong, the report is wrong too.
+
 **Human oversight.** The design assumes a radiologist reviews every case. The model only
 reorders the worklist and marks cases where it is uncertain.

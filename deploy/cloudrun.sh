@@ -21,6 +21,14 @@ gcloud services enable run.googleapis.com cloudbuild.googleapis.com artifactregi
 
 # --max-instances caps cost if the link gets popular; --min-instances 0 means $0 when idle
 # (the first request after idling takes ~10-20 s while the container starts).
+# Optional live LLM reports for uploads: store a Gemini key in Secret Manager and pass its name,
+#   CXR_GEMINI_SECRET=gemini-api-key deploy/cloudrun.sh ...
+# Without it the demo uses pre-generated sample reports plus the free template for uploads.
+EXTRA=()
+if [[ -n "${CXR_GEMINI_SECRET:-}" ]]; then
+  EXTRA=(--set-secrets "GEMINI_API_KEY=${CXR_GEMINI_SECRET}:latest" --set-env-vars "CXR_REPORT_BACKEND=gemini")
+fi
+
 gcloud run deploy "$SERVICE" \
   --source . \
   --region "$REGION" \
@@ -28,7 +36,8 @@ gcloud run deploy "$SERVICE" \
   --cpu 2 --memory 2Gi \
   --concurrency 4 \
   --min-instances 0 --max-instances 3 \
-  --timeout 60
+  --timeout 60 \
+  ${EXTRA[@]+"${EXTRA[@]}"}
 
 URL="$(gcloud run services describe "$SERVICE" --region "$REGION" --format 'value(status.url)')"
 echo

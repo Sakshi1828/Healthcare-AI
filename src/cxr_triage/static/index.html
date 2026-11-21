@@ -88,6 +88,13 @@
   .pct { text-align: right; font-variant-numeric: tabular-nums; color: var(--muted); }
   .legend { margin-top: 10px; font-size: 12.5px; color: var(--muted); }
   .error { color: var(--urgent); }
+  .report { margin: 0 0 16px; border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .report-head { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 4px 12px;
+    padding: 8px 12px; background: var(--surface-2); font-size: 12.5px; color: var(--muted); }
+  .report-head b { color: var(--text); font-weight: 600; }
+  .report pre { margin: 0; padding: 12px; white-space: pre-wrap; word-break: break-word;
+    font: 13px/1.55 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; color: var(--text); }
+  .ok { color: var(--clear); } .warn { color: var(--refer); }
   .spinner { width: 28px; height: 28px; border: 3px solid var(--border); border-top-color: var(--accent);
     border-radius: 50%; animation: spin .8s linear infinite; margin: 0 auto 10px; }
   @keyframes spin { to { transform: rotate(360deg); } }
@@ -143,13 +150,18 @@ const $ = (id) => document.getElementById(id);
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const pretty = (s) => s.replaceAll("_", " ");
 
-async function run(blob, truth) {
+async function run(blob, truth, sampleId) {
   const inputUrl = URL.createObjectURL(blob);
   $("result").innerHTML = '<div class="empty"><div class="spinner"></div>Analyzing…</div>';
-  const fd = new FormData();
-  fd.append("file", blob, "image.png");
   try {
-    const r = await fetch("/predict?explain=true", { method: "POST", body: fd });
+    let r;
+    if (sampleId !== undefined) {
+      r = await fetch(`/samples/${sampleId}/predict?explain=true&report=true`);
+    } else {
+      const fd = new FormData();
+      fd.append("file", blob, "image.png");
+      r = await fetch("/predict?explain=true&report=true", { method: "POST", body: fd });
+    }
     const data = await r.json();
     if (!r.ok) throw new Error(data.detail || r.statusText);
     render(data, inputUrl, truth);
@@ -188,9 +200,25 @@ function render(d, inputUrl, truth) {
       <figure><img src="${inputUrl}" alt="Input X-ray"><figcaption>Input</figcaption></figure>
       ${cam}
     </div>
+    ${reportHtml(d.report)}
     <div class="bars">${rows}</div>
     <p class="legend">Bars show calibrated probability; the dark tick is the decision threshold for that finding.
       Highlighted rows are above threshold.</p>`;
+}
+
+function reportHtml(rep) {
+  if (!rep) return "";
+  const model = (rep.usage || []).map((u) => u.model).find(Boolean) || "LLM";
+  const ahead = rep.pregenerated ? " (generated ahead of time)" : "";
+  const src = rep.source;
+  let label, check;
+  if (src === "template") [label, check] = ["Template report (no AI)", ""];
+  else if (src === "template_fallback") [label, check] = ["Template report", '<span class="warn">AI draft failed guardrail checks, so it was replaced</span>'];
+  else if (src === "template_rate_limited") [label, check] = ["Template report", '<span class="warn">hourly AI limit reached</span>'];
+  else if (src.endsWith("_repaired")) [label, check] = [`Drafted by <b>${esc(model)}</b>${ahead}`, '<span class="ok">passed guardrails after one repair</span>'];
+  else [label, check] = [`Drafted by <b>${esc(model)}</b>${ahead}`, '<span class="ok">passed all guardrail checks</span>'];
+  return `<div class="report"><div class="report-head"><span>Draft report · ${label}</span>${check}</div>
+    <pre>${esc(rep.text)}</pre></div>`;
 }
 
 async function loadSamples() {
@@ -204,7 +232,7 @@ async function loadSamples() {
     }).join("");
     document.querySelectorAll(".sample").forEach((b) => b.addEventListener("click", async () => {
       const s = list[+b.dataset.id];
-      run(await (await fetch(s.url)).blob(), s.ground_truth);
+      run(await (await fetch(s.url)).blob(), s.ground_truth, s.id);
     }));
   } catch { $("samples").innerHTML = '<p class="meta">Could not load samples.</p>'; }
 }

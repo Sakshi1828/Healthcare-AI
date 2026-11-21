@@ -204,12 +204,7 @@ class ClaudeGenerator:
         self.effort = effort
 
     def draft(self, context: dict, feedback: list[str] | None = None) -> tuple[dict, dict]:
-        content = "Classifier output:\n" + json.dumps(context, indent=2, sort_keys=True)
-        if feedback:
-            content += (
-                "\n\nYour previous draft broke these rules; write a corrected draft:\n- "
-                + "\n- ".join(feedback)
-            )
+        content = _user_content(context, feedback)
         resp = self.client.beta.messages.create(
             model=self.model,
             max_tokens=4000,
@@ -232,6 +227,77 @@ class ClaudeGenerator:
             raise RuntimeError(f"LLM stopped with {resp.stop_reason}")
         text = next(b.text for b in resp.content if b.type == "text")
         return json.loads(text), usage
+
+
+def _user_content(context: dict, feedback: list[str] | None) -> str:
+    content = "Classifier output:\n" + json.dumps(context, indent=2, sort_keys=True)
+    if feedback:
+        content += (
+            "\n\nYour previous draft broke these rules; write a corrected draft:\n- "
+            + "\n- ".join(feedback)
+        )
+    return content
+
+
+class GeminiGenerator:
+    """Drafts with Gemini (free tier via a Google AI Studio API key) using JSON-schema output.
+
+    The free tier is rate-limited per project; check the limits page in AI Studio. Free-tier
+    inputs may be used by Google to improve its products, which is acceptable here because only
+    classifier numbers are sent, never images or patient data.
+    """
+
+    name = "gemini"
+
+    def __init__(self, model: str = "gemini-flash-lite-latest", client=None):
+        from google import genai
+
+        self.client = client or genai.Client()  # reads GEMINI_API_KEY or GOOGLE_API_KEY
+        self.model = model
+
+    def draft(self, context: dict, feedback: list[str] | None = None) -> tuple[dict, dict]:
+        from google.genai import types
+
+        resp = self.client.models.generate_content(
+            model=self.model,
+            contents=_user_content(context, feedback),
+            config=types.GenerateContentConfig(
+                system_instruction=SYSTEM_PROMPT,
+                response_mime_type="application/json",
+                response_json_schema=SCHEMA,
+            ),
+        )
+        meta = resp.usage_metadata
+        usage = {
+            "input_tokens": getattr(meta, "prompt_token_count", None),
+            "output_tokens": getattr(meta, "candidates_token_count", None),
+            "model": self.model,
+        }
+        if not resp.text:
+            raise RuntimeError("empty response (possibly blocked)")
+        return json.loads(resp.text), usage
+
+
+def make_generator(backend: str = "auto") -> Generator:
+    """auto: Gemini if GEMINI_API_KEY/GOOGLE_API_KEY is set, else Claude if an Anthropic key is
+    set, else the free template. Model names can be overridden with CXR_GEMINI_MODEL and
+    CXR_CLAUDE_MODEL."""
+    import os
+
+    if backend == "auto":
+        if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
+            backend = "gemini"
+        elif os.environ.get("ANTHROPIC_API_KEY"):
+            backend = "claude"
+        else:
+            backend = "template"
+    if backend == "gemini":
+        return GeminiGenerator(model=os.environ.get("CXR_GEMINI_MODEL", "gemini-flash-lite-latest"))
+    if backend == "claude":
+        return ClaudeGenerator(model=os.environ.get("CXR_CLAUDE_MODEL", "claude-opus-5-5"))
+    if backend == "template":
+        return TemplateGenerator()
+    raise ValueError(f"Unknown report backend {backend!r}")
 
 
 def render(draft: dict, pred: dict) -> str:
