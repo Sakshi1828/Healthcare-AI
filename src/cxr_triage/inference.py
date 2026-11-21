@@ -22,6 +22,36 @@ from .model import build_model, gradcam_layer
 DISCLAIMER = "Research prototype. Not a medical device; not for clinical decision-making."
 
 
+def make_prediction(
+    probs: np.ndarray,
+    labels: list[str],
+    thresholds: np.ndarray,
+    urgent: set[str],
+    refer_uncertainty: float,
+) -> dict:
+    """Triage policy, shared by the API and the offline report evaluation."""
+    positive = probs >= thresholds
+    unc = float(uncertainty(probs[None])[0])
+    findings = [labels[j] for j in np.where(positive)[0]]
+    if any(f in urgent for f in findings):
+        triage = "URGENT"
+    elif unc > refer_uncertainty:
+        triage = "REFER_UNCERTAIN"
+    elif findings:
+        triage = "NON_URGENT_FINDING"
+    else:
+        triage = "NO_FINDING_DETECTED"
+    return {
+        "triage": triage,
+        "findings": findings,
+        "uncertainty": unc,
+        "probabilities": {n: float(p) for n, p in zip(labels, probs, strict=True)},
+        "thresholds": {n: float(t) for n, t in zip(labels, thresholds, strict=True)},
+        "urgent_labels": sorted(urgent),
+        "disclaimer": DISCLAIMER,
+    }
+
+
 class Predictor:
     def __init__(self, bundle_path: str | Path, device: str = "cpu"):
         b = torch.load(bundle_path, map_location=device, weights_only=False)
@@ -55,27 +85,9 @@ class Predictor:
         with torch.no_grad():
             logits = self.model(x)[0].cpu().numpy()
         probs = sigmoid(logits / self.temps)
-        positive = probs >= self.thresholds
-        unc = float(uncertainty(probs[None])[0])
-        findings = [self.labels[j] for j in np.where(positive)[0]]
-
-        if any(f in self.urgent for f in findings):
-            triage = "URGENT"
-        elif unc > self.refer_uncertainty:
-            triage = "REFER_UNCERTAIN"
-        elif findings:
-            triage = "NON_URGENT_FINDING"
-        else:
-            triage = "NO_FINDING_DETECTED"
-
-        result = {
-            "triage": triage,
-            "findings": findings,
-            "uncertainty": unc,
-            "probabilities": {n: float(p) for n, p in zip(self.labels, probs, strict=True)},
-            "thresholds": {n: float(t) for n, t in zip(self.labels, self.thresholds, strict=True)},
-            "disclaimer": DISCLAIMER,
-        }
+        result = make_prediction(
+            probs, self.labels, self.thresholds, self.urgent, self.refer_uncertainty
+        )
         if explain:
             top = int(np.argmax(probs / self.thresholds))
             cam = self.cam(x, top)
